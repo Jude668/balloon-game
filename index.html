@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>打气球豪华版</title>
+
+<style>
+body{
+    margin:0;
+    overflow:hidden;
+    cursor:none;
+    background:linear-gradient(#87CEEB,#E0F6FF);
+    font-family:"Microsoft YaHei";
+}
+
+#score{
+    position:absolute;
+    top:10px;
+    left:20px;
+    font-size:28px;
+    font-weight:bold;
+}
+
+#timer{
+    position:absolute;
+    top:10px;
+    right:20px;
+    font-size:28px;
+    font-weight:bold;
+}
+
+#life{
+    position:absolute;
+    top:55px;
+    left:20px;
+    font-size:28px;
+}
+
+#combo{
+    position:absolute;
+    top:95px;
+    left:20px;
+    color:#ff6600;
+    font-size:24px;
+    font-weight:bold;
+}
+
+.balloon{
+    position:absolute;
+    border-radius:50%;
+    cursor:pointer;
+}
+
+.balloon::after{
+    content:"";
+    position:absolute;
+    width:2px;
+    height:40px;
+    background:#555;
+    left:50%;
+    top:100%;
+}
+
+#gun{
+    position:fixed;
+    font-size:55px;
+    pointer-events:none;
+    z-index:99999;
+    transform:translate(-15px,-15px);
+}
+
+.hitText{
+    position:absolute;
+    font-size:28px;
+    font-weight:bold;
+    pointer-events:none;
+}
+
+#gameover{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.85);
+    color:white;
+    z-index:999999;
+    text-align:center;
+    padding-top:100px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="score">得分：0</div>
+<div id="timer">60秒</div>
+<div id="life">❤️❤️❤️❤️❤️</div>
+<div id="combo">连击：0</div>
+
+<div id="gun">🔫</div>
+
+<div id="gameover"></div>
+
+<script>
+
+let score = 0;
+let combo = 0;
+let hits = 0;
+let miss = 0;
+
+let life = 5;
+let gameTime = 60;
+let gameOver = false;
+
+let speed = 2;
+
+const gun = document.getElementById("gun");
+
+document.addEventListener("mousemove",e=>{
+    gun.style.left=e.clientX+"px";
+    gun.style.top=e.clientY+"px";
+});
+
+function updateUI(){
+
+    document.getElementById("score").innerHTML =
+    "得分：" + score;
+
+    document.getElementById("combo").innerHTML =
+    "连击：" + combo;
+
+    document.getElementById("life").innerHTML =
+    "❤️".repeat(Math.max(0,life));
+}
+
+function floatingText(x,y,text,color){
+
+    let t = document.createElement("div");
+
+    t.className = "hitText";
+    t.innerHTML = text;
+    t.style.left = x+"px";
+    t.style.top = y+"px";
+    t.style.color = color;
+
+    document.body.appendChild(t);
+
+    let n = 0;
+
+    let move = setInterval(()=>{
+
+        n++;
+
+        t.style.top = (y-n)+"px";
+
+        if(n>60){
+            clearInterval(move);
+            t.remove();
+        }
+
+    },15);
+}
+
+function createBalloon(){
+
+    if(gameOver) return;
+
+    const obj = document.createElement("div");
+
+    let type = "normal";
+
+    let rnd = Math.random();
+
+    if(rnd<0.08){
+        type="milktea";
+    }
+    else if(rnd<0.13){
+        type="bomb";
+    }
+    else if(rnd<0.15){
+        type="boss";
+    }
+
+    let width = 60;
+    let height = 80;
+    let reward = 1;
+
+    if(type==="milktea"){
+        width=70;
+        height=90;
+        reward=10;
+        obj.innerHTML="🧋";
+        obj.style.fontSize="60px";
+    }
+
+    if(type==="bomb"){
+        width=70;
+        height=70;
+        reward=-5;
+        obj.innerHTML="💣";
+        obj.style.fontSize="60px";
+    }
+
+    if(type==="boss"){
+        width=120;
+        height=140;
+        reward=20;
+        obj.innerHTML="👑";
+        obj.style.fontSize="80px";
+    }
+
+    if(type==="normal"){
+
+        const colors=[
+            "#ff4d4d",
+            "#4da6ff",
+            "#66ff66",
+            "#ffff66",
+            "#ff66ff",
+            "#ff9933"
+        ];
+
+        obj.style.background=
+        colors[Math.floor(Math.random()*colors.length)];
+    }
+
+    obj.className="balloon";
+
+    obj.style.width=width+"px";
+    obj.style.height=height+"px";
+
+    obj.style.left =
+    Math.random()*(window.innerWidth-width)+"px";
+
+    obj.style.top = window.innerHeight+"px";
+
+    document.body.appendChild(obj);
+
+    let y = window.innerHeight;
+
+    const move = setInterval(()=>{
+
+        y -= speed;
+
+        obj.style.top = y+"px";
+
+        if(y < -150){
+
+            clearInterval(move);
+
+            obj.remove();
+
+            miss++;
+
+            combo=0;
+
+            life--;
+
+            updateUI();
+
+            if(life<=0){
+                endGame();
+            }
+        }
+
+    },20);
+
+    obj.addEventListener("click",e=>{
+
+        if(gameOver) return;
+
+        e.stopPropagation();
+
+        clearInterval(move);
+
+        hits++;
+
+        combo++;
+
+        score += reward;
+
+        if(type==="bomb"){
+            combo=0;
+            floatingText(
+                e.pageX,
+                e.pageY,
+                "-5",
+                "red"
+            );
+        }
+
+        if(type==="milktea"){
+            floatingText(
+                e.pageX,
+                e.pageY,
+                "+10 ☕",
+                "green"
+            );
+        }
+
+        if(type==="boss"){
+            floatingText(
+                e.pageX,
+                e.pageY,
+                "+20 👑",
+                "gold"
+            );
+        }
+
+        if(type==="normal"){
+            floatingText(
+                e.pageX,
+                e.pageY,
+                "+1",
+                "#0066ff"
+            );
+        }
+
+        if(combo===5){
+            score += 5;
+        }
+
+        if(combo===10){
+            score += 15;
+        }
+
+        if(combo===20){
+            score += 50;
+        }
+
+        updateUI();
+
+        obj.style.opacity="0";
+        obj.style.transform="scale(1.8)";
+
+        setTimeout(()=>{
+            obj.remove();
+        },100);
+
+        if(score>=100){
+
+            alert(
+            "🎉 恭喜获得\n\nJude Chen 奶茶券一张 ☕"
+            );
+
+            score=-9999;
+        }
+
+    });
+
+}
+
+setInterval(()=>{
+    if(!gameOver){
+        createBalloon();
+    }
+},700);
+
+setInterval(()=>{
+
+    if(!gameOver){
+        speed+=0.25;
+    }
+
+},5000);
+
+document.addEventListener("click",e=>{
+
+    if(gameOver) return;
+
+    let boom=document.createElement("div");
+
+    boom.innerHTML="💥";
+
+    boom.style.position="absolute";
+    boom.style.left=(e.pageX-20)+"px";
+    boom.style.top=(e.pageY-20)+"px";
+    boom.style.fontSize="40px";
+
+    document.body.appendChild(boom);
+
+    setTimeout(()=>{
+        boom.remove();
+    },250);
+
+});
+
+function endGame(){
+
+    gameOver=true;
+
+    let rate = "新手";
+
+    if(score>=30) rate="熟练";
+    if(score>=60) rate="专家";
+    if(score>=100) rate="气球杀手";
+
+    document.getElementById("gameover").style.display="block";
+
+    document.getElementById("gameover").innerHTML=`
+    <h1>🎈 游戏结束 🎈</h1>
+    <h2>最终得分：${score}</h2>
+    <h2>命中：${hits}</h2>
+    <h2>漏掉：${miss}</h2>
+    <h2>评级：${rate}</h2>
+    <h3>感谢游玩 ☕</h3>
+    `;
+}
+
+const timer = setInterval(()=>{
+
+    if(gameOver){
+        clearInterval(timer);
+        return;
+    }
+
+    gameTime--;
+
+    document.getElementById("timer").innerHTML=
+    gameTime + "秒";
+
+    if(gameTime<=0){
+        endGame();
+    }
+
+},1000);
+
+updateUI();
+
+</script>
+
+</body>
+</html>
