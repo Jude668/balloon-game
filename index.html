@@ -2,52 +2,76 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>打气球豪华版</title>
+<title>解压打气球挑战赛</title>
 
 <style>
 body{
     margin:0;
     overflow:hidden;
-    cursor:none;
     background:linear-gradient(#87CEEB,#E0F6FF);
     font-family:"Microsoft YaHei";
+    cursor:none;
+}
+
+#startScreen{
+    position:fixed;
+    inset:0;
+    background:white;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    z-index:999999;
+}
+
+#startScreen input{
+    padding:15px;
+    width:300px;
+    font-size:22px;
+    text-align:center;
+}
+
+#startScreen button{
+    padding:15px 40px;
+    font-size:20px;
+    cursor:pointer;
+}
+
+#score,#life,#combo,#timer{
+    position:absolute;
+    left:15px;
+    font-weight:bold;
 }
 
 #score{
-    position:absolute;
     top:10px;
-    left:20px;
     font-size:28px;
-    font-weight:bold;
-}
-
-#timer{
-    position:absolute;
-    top:10px;
-    right:20px;
-    font-size:28px;
-    font-weight:bold;
 }
 
 #life{
-    position:absolute;
     top:55px;
-    left:20px;
     font-size:28px;
 }
 
 #combo{
-    position:absolute;
     top:95px;
-    left:20px;
-    color:#ff6600;
     font-size:24px;
-    font-weight:bold;
+    color:orange;
+}
+
+#timer{
+    top:135px;
+    font-size:24px;
+    color:#0066cc;
 }
 
 .balloon{
     position:absolute;
     border-radius:50%;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    text-align:center;
     cursor:pointer;
 }
 
@@ -63,15 +87,15 @@ body{
 
 #gun{
     position:fixed;
-    font-size:55px;
+    font-size:50px;
     pointer-events:none;
-    z-index:99999;
-    transform:translate(-15px,-15px);
+    z-index:9999;
+    transform:translate(-10px,-10px);
 }
 
 .hitText{
     position:absolute;
-    font-size:28px;
+    font-size:26px;
     font-weight:bold;
     pointer-events:none;
 }
@@ -80,133 +104,214 @@ body{
     display:none;
     position:fixed;
     inset:0;
-    background:rgba(0,0,0,.85);
+    background:rgba(0,0,0,.9);
     color:white;
-    z-index:999999;
     text-align:center;
+    z-index:999999;
     padding-top:100px;
 }
 </style>
 </head>
-
 <body>
 
+<div id="startScreen">
+
+<h1>🎈 解压打气球挑战赛 🎈</h1>
+
+<input id="playerName" placeholder="请输入让你生气那个人的名字">
+
+<br><br>
+
+<label>
+<input type="radio" name="mode" value="easy" checked>
+😄 休闲模式
+</label>
+
+<br><br>
+
+<label>
+<input type="radio" name="mode" value="normal">
+🔥 挑战模式
+</label>
+
+<br><br>
+
+<label>
+<input type="radio" name="mode" value="hard">
+☠️ 地狱模式
+</label>
+
+<br><br>
+
+<button onclick="startGame()">
+开始游戏
+</button>
+
+</div>
+
 <div id="score">得分：0</div>
-<div id="timer">60秒</div>
 <div id="life">❤️❤️❤️❤️❤️</div>
 <div id="combo">连击：0</div>
+<div id="timer">时间：0秒</div>
 
 <div id="gun">🔫</div>
-
 <div id="gameover"></div>
 
 <script>
 
-let score = 0;
-let combo = 0;
-let hits = 0;
-let miss = 0;
+let targetName="";
 
-let life = 5;
-let gameTime = 60;
-let gameOver = false;
+let score=0;
+let combo=0;
+let hits=0;
+let miss=0;
 
-let speed = 2;
+let life=5;
+let surviveTime=0;
 
-const gun = document.getElementById("gun");
+let speed=2;
+let speedIncrease=0.1;
+let speedInterval=10000;
 
-document.addEventListener("mousemove",e=>{
+let gameOver=false;
+let gameStarted=false;
+
+const emojis=[
+"😡","🤡","🤮","😴","🙄",
+"😵","🤣","🤯","😜","🥴"
+];
+
+function startGame(){
+
+    let name=document
+    .getElementById("playerName")
+    .value
+    .trim();
+
+    if(name===""){
+        alert("请输入让你生气的那个人的名字");
+        return;
+    }
+
+    targetName=name;
+
+    let mode=document.querySelector(
+    'input[name="mode"]:checked'
+    ).value;
+
+    if(mode==="easy"){
+        speed=2;
+        speedIncrease=0.1;
+        speedInterval=10000;
+    }
+
+    if(mode==="normal"){
+        speed=2;
+        speedIncrease=0.25;
+        speedInterval=5000;
+    }
+
+    if(mode==="hard"){
+        speed=4;
+        speedIncrease=0.5;
+        speedInterval=3000;
+    }
+
+    document
+    .getElementById("startScreen")
+    .style.display="none";
+    gameStarted = true;
+
+    startSpeedSystem();
+
+}
+
+function startSpeedSystem(){
+
+    setInterval(()=>{
+
+        if(gameOver) return;
+
+        speed+=speedIncrease;
+
+    },speedInterval);
+
+}
+
+document.addEventListener("mousemove",(e)=>{
+
     gun.style.left=e.clientX+"px";
     gun.style.top=e.clientY+"px";
+
 });
 
 function updateUI(){
 
-    document.getElementById("score").innerHTML =
-    "得分：" + score;
+    scoreDiv.innerHTML="得分："+score;
+    comboDiv.innerHTML="连击："+combo;
+    lifeDiv.innerHTML="❤️".repeat(
+    Math.max(0,life)
+    );
 
-    document.getElementById("combo").innerHTML =
-    "连击：" + combo;
-
-    document.getElementById("life").innerHTML =
-    "❤️".repeat(Math.max(0,life));
 }
 
 function floatingText(x,y,text,color){
 
-    let t = document.createElement("div");
+    let t=document.createElement("div");
 
-    t.className = "hitText";
-    t.innerHTML = text;
-    t.style.left = x+"px";
-    t.style.top = y+"px";
-    t.style.color = color;
+    t.className="hitText";
+    t.innerHTML=text;
+
+    t.style.left=x+"px";
+    t.style.top=y+"px";
+    t.style.color=color;
 
     document.body.appendChild(t);
 
-    let n = 0;
+    let n=0;
 
-    let move = setInterval(()=>{
+    let move=setInterval(()=>{
 
         n++;
 
-        t.style.top = (y-n)+"px";
+        t.style.top=(y-n)+"px";
 
-        if(n>60){
+        if(n>50){
+
             clearInterval(move);
             t.remove();
+
         }
 
     },15);
+
 }
 
 function createBalloon(){
 
     if(gameOver) return;
 
-    const obj = document.createElement("div");
+    let obj=document.createElement("div");
 
-    let type = "normal";
+    let type="normal";
 
-    let rnd = Math.random();
+    let rnd=Math.random();
 
-    if(rnd<0.08){
-        type="milktea";
-    }
-    else if(rnd<0.13){
+    if(rnd<0.10){
+
         type="bomb";
-    }
-    else if(rnd<0.15){
+
+    }else if(rnd<0.15){
+
         type="boss";
+
     }
 
-    let width = 60;
-    let height = 80;
-    let reward = 1;
+    let width=70;
+    let height=90;
+    let reward=1;
 
-    if(type==="milktea"){
-        width=70;
-        height=90;
-        reward=10;
-        obj.innerHTML="🧋";
-        obj.style.fontSize="60px";
-    }
-
-    if(type==="bomb"){
-        width=70;
-        height=70;
-        reward=-5;
-        obj.innerHTML="💣";
-        obj.style.fontSize="60px";
-    }
-
-    if(type==="boss"){
-        width=120;
-        height=140;
-        reward=20;
-        obj.innerHTML="👑";
-        obj.style.fontSize="80px";
-    }
+    obj.className="balloon";
 
     if(type==="normal"){
 
@@ -221,50 +326,95 @@ function createBalloon(){
 
         obj.style.background=
         colors[Math.floor(Math.random()*colors.length)];
+
+        obj.innerHTML=`
+        <div>
+        <div style="font-size:12px;font-weight:bold;">
+        ${targetName}
+        </div>
+        <div style="font-size:32px;">
+        ${emojis[Math.floor(Math.random()*emojis.length)]}
+        </div>
+        </div>
+        `;
     }
 
-    obj.className="balloon";
+    if(type==="bomb"){
+
+        reward=-5;
+        width=70;
+        height=70;
+
+        obj.style.fontSize="55px";
+        obj.innerHTML="💣";
+
+    }
+
+    if(type==="boss"){
+
+        reward=20;
+        width=120;
+        height=140;
+
+        obj.innerHTML=`
+        <div>
+        <div style="font-size:14px;font-weight:bold;">
+        ${targetName}
+        </div>
+        <div style="font-size:60px;">
+        👑
+        </div>
+        </div>
+        `;
+    }
 
     obj.style.width=width+"px";
     obj.style.height=height+"px";
 
-    obj.style.left =
-    Math.random()*(window.innerWidth-width)+"px";
+    obj.style.left=
+    Math.random()*
+    (window.innerWidth-width)+"px";
 
-    obj.style.top = window.innerHeight+"px";
+    obj.style.top=
+    window.innerHeight+"px";
 
     document.body.appendChild(obj);
 
-    let y = window.innerHeight;
+    let y=window.innerHeight;
 
-    const move = setInterval(()=>{
+    let move=setInterval(()=>{
 
-        y -= speed;
+        y-=speed;
 
-        obj.style.top = y+"px";
+        obj.style.top=y+"px";
 
-        if(y < -150){
+        if(y<-150){
 
             clearInterval(move);
 
             obj.remove();
 
-            miss++;
-
             combo=0;
 
-            life--;
+            if(type!=="bomb"){
 
-            updateUI();
+                miss++;
 
-            if(life<=0){
-                endGame();
+                life--;
+
+                updateUI();
+
+                if(life<=0){
+                    endGame();
+                }
+
             }
+
         }
 
     },20);
 
-    obj.addEventListener("click",e=>{
+    obj.addEventListener("click",(e)=>{
 
         if(gameOver) return;
 
@@ -276,153 +426,123 @@ function createBalloon(){
 
         combo++;
 
-        score += reward;
+        score+=reward;
+
+        if(type==="normal")
+        floatingText(
+        e.pageX,
+        e.pageY,
+        "+1",
+        "blue"
+        );
+
+        if(type==="boss")
+        floatingText(
+        e.pageX,
+        e.pageY,
+        "+20",
+        "gold"
+        );
 
         if(type==="bomb"){
+
             combo=0;
+
             floatingText(
-                e.pageX,
-                e.pageY,
-                "-5",
-                "red"
+            e.pageX,
+            e.pageY,
+            "-5",
+            "red"
             );
         }
 
-        if(type==="milktea"){
-            floatingText(
-                e.pageX,
-                e.pageY,
-                "+10 ☕",
-                "green"
-            );
-        }
-
-        if(type==="boss"){
-            floatingText(
-                e.pageX,
-                e.pageY,
-                "+20 👑",
-                "gold"
-            );
-        }
-
-        if(type==="normal"){
-            floatingText(
-                e.pageX,
-                e.pageY,
-                "+1",
-                "#0066ff"
-            );
-        }
-
-        if(combo===5){
-            score += 5;
-        }
-
-        if(combo===10){
-            score += 15;
-        }
-
-        if(combo===20){
-            score += 50;
-        }
+        if(combo===5) score+=5;
+        if(combo===10) score+=15;
+        if(combo===20) score+=50;
 
         updateUI();
 
-        obj.style.opacity="0";
-        obj.style.transform="scale(1.8)";
-
-        setTimeout(()=>{
-            obj.remove();
-        },100);
-
-        if(score>=100){
-
-            alert(
-            "🎉 恭喜获得\n\nJude Chen 奶茶券一张 ☕"
-            );
-
-            score=-9999;
-        }
+        obj.remove();
 
     });
 
 }
 
 setInterval(()=>{
-    if(!gameOver){
-        createBalloon();
-    }
-},700);
 
-setInterval(()=>{
-
-    if(!gameOver){
-        speed+=0.25;
-    }
-
-},5000);
-
-document.addEventListener("click",e=>{
+    if(!gameStarted) return;
 
     if(gameOver) return;
 
-    let boom=document.createElement("div");
+    createBalloon();
 
-    boom.innerHTML="💥";
+},700);
 
-    boom.style.position="absolute";
-    boom.style.left=(e.pageX-20)+"px";
-    boom.style.top=(e.pageY-20)+"px";
-    boom.style.fontSize="40px";
+document.addEventListener("click",(e)=>{
 
-    document.body.appendChild(boom);
+    if(gameOver) return;
 
-    setTimeout(()=>{
-        boom.remove();
-    },250);
+    score-=10;
+
+    combo=0;
+
+    updateUI();
+
+    floatingText(
+    e.pageX,
+    e.pageY,
+    "-10",
+    "red"
+    );
 
 });
+
+setInterval(()=>{
+
+    if(gameOver) return;
+
+    surviveTime++;
+
+    timer.innerHTML=
+    "时间："+surviveTime+"秒";
+
+},1000);
+
+
 
 function endGame(){
 
     gameOver=true;
 
-    let rate = "新手";
+    let rate="新手";
 
     if(score>=30) rate="熟练";
     if(score>=60) rate="专家";
     if(score>=100) rate="气球杀手";
 
-    document.getElementById("gameover").style.display="block";
+    gameover.style.display="block";
 
-    document.getElementById("gameover").innerHTML=`
+    gameover.innerHTML=`
     <h1>🎈 游戏结束 🎈</h1>
     <h2>最终得分：${score}</h2>
+    <h2>时间：${surviveTime}秒</h2>
     <h2>命中：${hits}</h2>
     <h2>漏掉：${miss}</h2>
     <h2>评级：${rate}</h2>
-    <h3>感谢游玩 ☕</h3>
+    <br>
+    <button onclick="location.reload()"
+    style="padding:15px 40px;font-size:24px;">
+    重新开始
+    </button>
     `;
 }
 
-const timer = setInterval(()=>{
-
-    if(gameOver){
-        clearInterval(timer);
-        return;
-    }
-
-    gameTime--;
-
-    document.getElementById("timer").innerHTML=
-    gameTime + "秒";
-
-    if(gameTime<=0){
-        endGame();
-    }
-
-},1000);
+const scoreDiv=document.getElementById("score");
+const comboDiv=document.getElementById("combo");
+const lifeDiv=document.getElementById("life");
+const timer=document.getElementById("timer");
+const gun=document.getElementById("gun");
+const gameover=document.getElementById("gameover");
 
 updateUI();
 
