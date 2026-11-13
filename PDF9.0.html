@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF 原生文本编辑、拖拽、等比例印章与样式调整工具</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f4f4f5;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .toolbar {
+            background-color: #1e1e24;
+            color: #fff;
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            z-index: 10;
+            flex-wrap: wrap;
+        }
+        .btn {
+            background-color: #007acc;
+            color: white;
+            padding: 7px 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .btn:hover { background-color: #005999; }
+        .btn-success { background-color: #28a745; }
+        .btn-success:hover { background-color: #218838; }
+        .btn-warning { background-color: #e67e22; }
+        .btn-warning:hover { background-color: #cf6d17; }
+        .btn:disabled { background-color: #555; color: #888; cursor: not-allowed; }
+        
+        .tool-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255,255,255,0.08);
+            padding: 4px 10px;
+            border-radius: 4px;
+        }
+
+        .main-container {
+            flex: 1;
+            overflow: auto;
+            padding: 30px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            position: relative;
+        }
+        
+        /* 拖拽上传覆盖层提示 */
+        .drop-zone-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 122, 204, 0.85);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+            z-index: 1000;
+            display: none;
+        }
+
+        .pdf-wrapper {
+            position: relative;
+            background: white;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            min-width: 300px;
+            min-height: 400px;
+            display: none;
+        }
+        canvas { display: block; }
+
+        /* 未编辑前文字保持透明，只看底层高精度 Canvas，彻底消除任何重叠阴影 */
+        .native-text-box {
+            position: absolute;
+            background-color: transparent;
+            border: 1px dashed transparent;
+            outline: none;
+            color: transparent; 
+            padding: 0px 2px;
+            line-height: 1.1;
+            z-index: 20;
+            white-space: pre;
+            transform-origin: left top;
+            cursor: move;
+            user-select: none;
+        }
+
+        .native-text-box:hover {
+            border-color: #3b82f6;
+            background-color: rgba(59, 130, 246, 0.05);
+        }
+
+        /* 激活编辑状态：背景变白遮盖原图，文字显式赋予原色(默认黑色)，绝不会白底白字看不见 */
+        .native-text-box:focus,
+        .native-text-box.is-editing {
+            color: var(--text-color, #000000) !important;
+            background-color: #ffffff !important;
+            border: 1px dashed #e67e22 !important;
+            z-index: 100;
+            user-select: text;
+        }
+
+        /* 盖章/图片元素样式：取消自由拉伸，改用控制柄实现等比例缩放 */
+        .stamp-box {
+            position: absolute;
+            border: 2px dashed #e74c3c;
+            cursor: move;
+            z-index: 150;
+            user-select: none;
+        }
+        .stamp-box img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        /* 右下角等比例缩放手柄 */
+        .stamp-box .resize-handle {
+            position: absolute;
+            right: -5px;
+            bottom: -5px;
+            width: 12px;
+            height: 12px;
+            background: #e74c3c;
+            border: 1px solid #fff;
+            border-radius: 2px;
+            cursor: se-resize;
+            z-index: 165;
+        }
+        .stamp-box .delete-btn {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #e74c3c;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            text-align: center;
+            line-height: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            display: none;
+            z-index: 160;
+        }
+        .stamp-box:hover .delete-btn {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="toolbar">
+        <label for="pdf-upload" class="btn">📂 打开 PDF</label>
+        <input type="file" id="pdf-upload" accept="application/pdf" style="display:none;">
+
+        <label for="stamp-upload" class="btn btn-warning">🏷️ 添加印章图片</label>
+        <input type="file" id="stamp-upload" accept="image/*" style="display:none;">
+
+        <div class="tool-group">
+            <span style="font-size: 12px;">字号:</span>
+            <input type="number" id="font-size-input" value="12" min="6" max="72" style="width: 50px; padding: 3px; font-size: 13px;">
+            
+            <span style="font-size: 12px; margin-left: 5px;">颜色:</span>
+            <input type="color" id="font-color-input" value="#000000" style="width: 30px; height: 24px; border: none; cursor: pointer; background: none;">
+        </div>
+
+        <button id="download-btn" class="btn btn-success" disabled>💾 保存并导出修改后的 PDF</button>
+        <span id="status-tip" style="font-size: 12px; color: #aaa; margin-left: auto;">支持拖拽 PDF、Ctrl+V 粘贴印章、印章等比例缩放</span>
+    </div>
+
+    <div class="main-container" id="drop-container">
+        <!-- 拖拽上传覆盖层提示 -->
+        <div class="drop-zone-overlay" id="drop-overlay">释放鼠标将 PDF 拖入加载</div>
+
+        <div id="placeholder-text" style="color: #888; margin-top: 100px; font-size: 16px; text-align: center;">
+            📄 请将 PDF 文件拖拽到此处，或点击左上角按钮打开<br><br>
+            <span style="font-size: 13px; color: #aaa;">提示：选中文字后可在上方修改字号与颜色；拖动印章右下角红点可按原始比例缩放。</span>
+        </div>
+
+        <div class="pdf-wrapper" id="pdf-wrapper">
+            <canvas id="pdf-canvas"></canvas>
+            <div id="text-layer"></div>
+        </div>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+
+        let rawPdfBytes = null;
+        let pdfDoc = null;
+        let scale = 1.5;
+        let pdfPageHeight = 0;
+
+        let activeTextBox = null; 
+        const textBlocksMap = new Map();
+        const stampsList = []; 
+
+        const fileInput = document.getElementById('pdf-upload');
+        const stampInput = document.getElementById('stamp-upload');
+        const canvas = document.getElementById('pdf-canvas');
+        const ctx = canvas.getContext('2d');
+        const wrapper = document.getElementById('pdf-wrapper');
+        const textLayerDiv = document.getElementById('text-layer');
+        const downloadBtn = document.getElementById('download-btn');
+        const statusTip = document.getElementById('status-tip');
+        const placeholder = document.getElementById('placeholder-text');
+        const dropContainer = document.getElementById('drop-container');
+        const dropOverlay = document.getElementById('drop-overlay');
+        
+        const fontSizeInput = document.getElementById('font-size-input');
+        const fontColorInput = document.getElementById('font-color-input');
+
+        // 监听字号变动
+        fontSizeInput.addEventListener('input', () => {
+            if (activeTextBox) {
+                const newSize = fontSizeInput.value;
+                activeTextBox.style.fontSize = `${newSize * scale}px`;
+                const data = textBlocksMap.get(Number(activeTextBox.dataset.id));
+                if (data) {
+                    data.customFontSize = parseFloat(newSize);
+                    textBlocksMap.set(Number(activeTextBox.dataset.id), data);
+                }
+            }
+        });
+
+        // 监听颜色变动
+        fontColorInput.addEventListener('input', () => {
+            if (activeTextBox) {
+                const newColor = fontColorInput.value;
+                activeTextBox.style.setProperty('--text-color', newColor);
+                const data = textBlocksMap.get(Number(activeTextBox.dataset.id));
+                if (data) {
+                    data.customColor = newColor;
+                    textBlocksMap.set(Number(activeTextBox.dataset.id), data);
+                }
+            }
+        });
+
+        // --- 1. 文件加载处理 ---
+        fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropContainer.addEventListener(eventName, (e) => { e.preventDefault(); dropOverlay.style.display = 'flex'; }, false);
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropContainer.addEventListener(eventName, (e) => { e.preventDefault(); dropOverlay.style.display = 'none'; }, false);
+        });
+        dropContainer.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const file = dt.files[0];
+            if (file && file.type === 'application/pdf') {
+                handleFile(file);
+            } else {
+                alert("请拖入有效的 PDF 文件！");
+            }
+        });
+
+        async function handleFile(file) {
+            if (!file) return;
+            statusTip.innerText = "正在解析 PDF...";
+            try {
+                rawPdfBytes = await file.arrayBuffer();
+                const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(rawPdfBytes) });
+                pdfDoc = await loadingTask.promise;
+                
+                placeholder.style.display = 'none';
+                wrapper.style.display = 'inline-block';
+
+                await renderPage(1);
+                
+                downloadBtn.disabled = false;
+                statusTip.innerText = "加载成功！点击文字即可直接编辑，无阴影重影。";
+            } catch (err) {
+                statusTip.innerText = "解析失败，请检查文件。";
+                console.error(err);
+            }
+        }
+
+        async function renderPage(num) {
+            textBlocksMap.clear();
+            textLayerDiv.innerHTML = '';
+            stampsList.length = 0;
+
+            const page = await pdfDoc.getPage(num);
+            const viewport = page.getViewport({ scale: scale });
+            pdfPageHeight = page.getViewport({ scale: 1.0 }).height;
+
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+
+            await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+            const textContent = await page.getTextContent();
+            const mergedItems = mergeTextItems(textContent.items, viewport);
+
+            mergedItems.forEach((item, index) => {
+                if (!item.str.trim()) return;
+
+                const left = item.x;
+                const top = item.y;
+                const width = Math.max(item.w, 10);
+                const height = item.h;
+
+                const block = document.createElement('div');
+                block.className = 'native-text-box';
+                block.contentEditable = true;
+                block.innerText = item.str;
+                block.dataset.id = index;
+
+                block.style.left = `${left}px`;
+                block.style.top = `${top}px`;
+                block.style.fontSize = `${item.fontSize}px`;
+                block.style.fontFamily = item.fontName || 'sans-serif';
+                // 默认设定颜色变量为原色（黑色）
+                block.style.setProperty('--text-color', '#000000');
+
+                const blockData = {
+                    id: index,
+                    originalText: item.str,
+                    currentText: item.str,
+                    origX: left,
+                    origY: top,
+                    origW: width,
+                    origH: height,
+                    x: left,
+                    y: top,
+                    pdfW: width / scale,
+                    pdfH: height / scale,
+                    fontSize: item.fontSize / scale,
+                    customFontSize: null,
+                    customColor: '#000000',
+                    erasedOnCanvas: false
+                };
+
+                block.addEventListener('focus', () => {
+                    activeTextBox = block;
+                    block.classList.add('is-editing');
+                    
+                    // 同步当前文本框的字号和颜色到工具栏
+                    fontSizeInput.value = blockData.customFontSize || Math.round(blockData.fontSize);
+                    fontColorInput.value = blockData.customColor || '#000000';
+
+                    // 仅擦除原本所在位置的底图，绝不会引发双重字体阴影
+                    if (!blockData.erasedOnCanvas) {
+                        ctx.fillStyle = "#ffffff";
+                        ctx.fillRect(blockData.origX - 1, blockData.origY - 1, blockData.origW + 2, blockData.origH + 2);
+                        blockData.erasedOnCanvas = true;
+                    }
+                });
+
+                block.addEventListener('input', () => {
+                    blockData.currentText = block.innerText;
+                    textBlocksMap.set(index, blockData);
+                });
+
+                makeDraggable(block, (newX, newY) => {
+                    blockData.x = newX;
+                    blockData.y = newY;
+                    textBlocksMap.set(index, blockData);
+                });
+
+                textLayerDiv.appendChild(block);
+                textBlocksMap.set(index, blockData);
+            });
+        }
+
+        // --- 2. 印章与图片粘贴/上传功能（严格等比例缩放） ---
+        stampInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) loadStampImage(file);
+        });
+
+        window.addEventListener('paste', (e) => {
+            if (!pdfDoc) return;
+            const items = (e.clipboardData || e.clipboardData).items;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    const blob = items[i].getAsFile();
+                    loadStampImage(blob);
+                    break;
+                }
+            }
+        });
+
+        function loadStampImage(fileOrBlob) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const imgObj = new Image();
+                imgObj.onload = function() {
+                    // 计算原始宽高比
+                    const aspectRatio = imgObj.width / imgObj.height;
+                    createStampElement(event.target.result, fileOrBlob.type, aspectRatio);
+                };
+                imgObj.src = event.target.result;
+            };
+            reader.readAsDataURL(fileOrBlob);
+        }
+
+        function createStampElement(dataUrl, mimeType, aspectRatio) {
+            if (!pdfDoc) {
+                alert("请先打开 PDF 文件再添加印章！");
+                return;
+            }
+
+            const initialWidth = 120;
+            const initialHeight = initialWidth / aspectRatio;
+
+            const stampDiv = document.createElement('div');
+            stampDiv.className = 'stamp-box';
+            stampDiv.style.left = '150px';
+            stampDiv.style.top = '150px';
+            stampDiv.style.width = `${initialWidth}px`;
+            stampDiv.style.height = `${initialHeight}px`;
+
+            const img = document.createElement('img');
+            img.src = dataUrl;
+            stampDiv.appendChild(img);
+
+            // 右下角等比例缩放手柄
+            const resizeHandle = document.createElement('div');
+            resizeHandle.className = 'resize-handle';
+            stampDiv.appendChild(resizeHandle);
+
+            const delBtn = document.createElement('div');
+            delBtn.className = 'delete-btn';
+            delBtn.innerText = '×';
+            delBtn.onclick = () => {
+                stampDiv.remove();
+                const idx = stampsList.indexOf(stampData);
+                if (idx > -1) stampsList.splice(idx, 1);
+            };
+            stampDiv.appendChild(delBtn);
+
+            wrapper.appendChild(stampDiv);
+
+            const stampData = {
+                element: stampDiv,
+                dataUrl: dataUrl,
+                mimeType: mimeType || 'image/png',
+                x: 150,
+                y: 150,
+                width: initialWidth,
+                height: initialHeight
+            };
+            stampsList.push(stampData);
+
+            // 整体移动拖拽
+            makeDraggable(stampDiv, (newX, newY) => {
+                stampData.x = newX;
+                stampData.y = newY;
+            });
+
+            // 严格等比例缩放逻辑
+            let isResizing = false;
+            let startX, startWidth;
+
+            resizeHandle.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                startX = e.clientX;
+                startWidth = stampDiv.offsetWidth;
+                e.stopPropagation();
+                e.preventDefault();
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+                const dx = e.clientX - startX;
+                let newWidth = startWidth + dx;
+                if (newWidth < 30) newWidth = 30; // 最小宽度保护
+                
+                // 高度严格按原始比例计算，绝不会拖变形
+                let newHeight = newWidth / aspectRatio;
+
+                stampDiv.style.width = `${newWidth}px`;
+                stampDiv.style.height = `${newHeight}px`;
+
+                stampData.width = newWidth;
+                stampData.height = newHeight;
+            });
+
+            window.addEventListener('mouseup', () => {
+                isResizing = false;
+            });
+        }
+
+        function makeDraggable(element, onMove) {
+            let isDragging = false;
+            let startX, startY;
+
+            element.addEventListener('mousedown', (e) => {
+                if (e.target.classList.contains('resize-handle')) return;
+                if (element.contentEditable === 'true' && document.activeElement === element) {
+                    return;
+                }
+                isDragging = true;
+                startX = e.clientX - element.offsetLeft;
+                startY = e.clientY - element.offsetTop;
+                e.stopPropagation();
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                const newX = e.clientX - startX;
+                const newY = e.clientY - startY;
+                
+                element.style.left = `${newX}px`;
+                element.style.top = `${newY}px`;
+
+                onMove(newX, newY);
+            });
+
+            window.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+        }
+
+        function mergeTextItems(items, viewport) {
+            const merged = [];
+            let current = null;
+
+            items.forEach(item => {
+                if (!item.str) return;
+
+                const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+                const fontHeight = Math.sqrt(tx[2] * tx[2] + tx[3] * tx[3]);
+                const x = tx[4];
+                const y = tx[5] - fontHeight;
+                const w = item.width * scale;
+                const h = fontHeight * 1.15;
+
+                if (!current) {
+                    current = { str: item.str, x, y, w, h, fontSize: fontHeight, fontName: item.fontName };
+                    return;
+                }
+
+                const sameLine = Math.abs(current.y - y) < fontHeight * 0.3;
+                const isClose = (x - (current.x + current.w)) < (fontHeight * 0.8);
+
+                if (sameLine && isClose) {
+                    current.str += item.str;
+                    current.w = (x + w) - current.x;
+                } else {
+                    merged.push(current);
+                    current = { str: item.str, x, y, w, h, fontSize: fontHeight, fontName: item.fontName };
+                }
+            });
+
+            if (current) merged.push(current);
+            return merged;
+        }
+
+        // --- 3. 导出保存 PDF ---
+        downloadBtn.addEventListener('click', async () => {
+            if (!rawPdfBytes) return;
+
+            statusTip.innerText = "正在导出...";
+            downloadBtn.disabled = true;
+
+            try {
+                const { PDFDocument, rgb } = PDFLib;
+                const pdfDocToEdit = await PDFDocument.load(rawPdfBytes);
+                const font = await pdfDocToEdit.embedFont(PDFLib.StandardFonts.Helvetica);
+
+                const pages = pdfDocToEdit.getPages();
+                const firstPage = pages[0];
+
+                let modifiedCount = 0;
+
+                // 1. 处理文本修改
+                textBlocksMap.forEach((item) => {
+                    const isMoved = item.x !== item.origX || item.y !== item.origY;
+                    const isTextChanged = item.originalText !== item.currentText;
+                    const isStyled = item.customFontSize || item.customColor !== '#000000';
+
+                    if (!isTextChanged && !isMoved && !isStyled) return;
+                    modifiedCount++;
+
+                    const origPdfX = item.origX / scale;
+                    const origPdfY = pdfPageHeight - (item.origY / scale) - item.pdfH;
+                    firstPage.drawRectangle({
+                        x: origPdfX - 1,
+                        y: origPdfY - 1,
+                        width: item.pdfW + 2,
+                        height: item.pdfH + 2,
+                        color: rgb(1, 1, 1),
+                    });
+
+                    const finalPdfX = item.x / scale;
+                    const finalPdfY = pdfPageHeight - (item.y / scale) - item.pdfH;
+
+                    let newText = item.currentText.replace(/[\r\n]/g, '').trim();
+                    newText = newText.replace(/[^\x00-\x7F]/g, '');
+
+                    let textColor = rgb(0, 0, 0);
+                    if (item.customColor) {
+                        const hex = item.customColor.replace('#', '');
+                        const r = parseInt(hex.substring(0, 2), 16) / 255;
+                        const g = parseInt(hex.substring(2, 4), 16) / 255;
+                        const b = parseInt(hex.substring(4, 6), 16) / 255;
+                        textColor = rgb(r, g, b);
+                    }
+
+                    const finalFontSize = item.customFontSize ? item.customFontSize : item.fontSize;
+
+                    if (newText) {
+                        firstPage.drawText(newText, {
+                            x: finalPdfX,
+                            y: finalPdfY + (finalFontSize * 0.15),
+                            size: finalFontSize,
+                            font: font,
+                            color: textColor,
+                        });
+                    }
+                });
+
+                // 2. 处理印章嵌入
+                for (let stamp of stampsList) {
+                    const imgBytes = await fetch(stamp.dataUrl).then(res => res.arrayBuffer());
+                    let embeddedImage;
+                    if (stamp.mimeType.includes('png') || stamp.dataUrl.includes('image/png')) {
+                        embeddedImage = await pdfDocToEdit.embedPng(imgBytes);
+                    } else {
+                        embeddedImage = await pdfDocToEdit.embedJpg(imgBytes);
+                    }
+
+                    const pdfStampX = stamp.x / scale;
+                    const pdfStampW = stamp.width / scale;
+                    const pdfStampH = stamp.height / scale;
+                    const pdfStampY = pdfPageHeight - (stamp.y / scale) - pdfStampH;
+
+                    firstPage.drawImage(embeddedImage, {
+                        x: pdfStampX,
+                        y: pdfStampY,
+                        width: pdfStampW,
+                        height: pdfStampH,
+                    });
+                    modifiedCount++;
+                }
+
+                const modifiedPdfBytes = await pdfDocToEdit.save();
+                const blob = new Blob([modifiedPdfBytes], { type: 'application/pdf' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = 'modified_and_stamped.pdf';
+                link.click();
+
+                statusTip.innerText = `导出成功！应用了 ${modifiedCount} 处修改并自动下载。`;
+            } catch (err) {
+                statusTip.innerText = `导出失败: ${err.message || '请查看控制台'}`;
+                console.error("PDF Export Error:", err);
+            } finally {
+                downloadBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
